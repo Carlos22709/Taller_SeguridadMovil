@@ -81,7 +81,7 @@ cloudflared tunnel --url http://localhost:8000
 ## 3. Pruebas automáticas
 
 ```bash
-cd backend-auth && python -m pytest -q     # 36 pruebas: RFC 6238/7636, PKCE, refresh, step-up, replay
+cd backend-auth && python -m pytest -q     # 37 pruebas: RFC 6238/7636, PKCE, refresh, step-up, replay
 cd mobile-app  && npm test                 # 27 pruebas: RFC 6238/2202/7636, paridad con Python, cola de refresh
 cd mobile-app  && npm run typecheck && npx expo lint
 ```
@@ -95,7 +95,7 @@ cd mobile-app  && npm run typecheck && npx expo lint
 | 1 | **OAuth + PKCE** | Login → muestra `code_verifier`, `code_challenge` y `state` → *Iniciar sesión con UniSabana*. Se abre el navegador del sistema (en web, una ventana emergente) con el login del servidor → *Autorizar*. | Vuelve a la app con sesión iniciada. En *Inicio*: `access_token` en memoria y `refresh_token` en Keychain/Keystore (en web, cookie HttpOnly). |
 | 2 | **Paridad TOTP** | Abrir `http://localhost:8000/mfa/qr` y escanearlo con Google Authenticator y con la app (*Authenticator → Escanear QR*, o pegar `JBSWY3DPEHPK3PXP`). | Los mismos 6 dígitos al mismo tiempo. |
 | 3 | **Modo Avión** | Con la cuenta ya cargada, activar Modo Avión (en web: DevTools → Network → *Offline*) y esperar a que el contador llegue a 0. | El código cambia sin red. La tarjeta "Cómo se obtiene el código" muestra T, el contador de 64 bits y el truncamiento. |
-| 4 | **Step-Up + Bóveda** | *Bóveda → Abrir Bóveda Crítica* → la API responde `403 mfa_required` → aparece el modal 2FA → escribir el código. | Se abre la bóveda con un `elevated_token` (`mfa_verified: true`, 10 min y cuenta regresiva). |
+| 4 | **Step-Up + Bóveda** | Entrar a la pestaña *Bóveda*: la app pide el recurso, la API responde `403 mfa_required` y aparece sola el modal 2FA → escribir el código. | Se abre la bóveda con un `elevated_token` (`mfa_verified: true`, 10 min y cuenta regresiva). |
 | 5 | **Anti-Replay** | En *Bóveda → Prueba anti-replay → Reenviar el mismo código*. | `409 Conflict · Replay Attack Detected`. |
 
 Extra (Punto 2): *Inicio → Expirar token + 3 peticiones simultáneas*. El registro muestra 3 respuestas
@@ -168,7 +168,7 @@ vuelve al login sola.
 | POST | `/auth/refresh` | Rotación del refresh token (JSON `{refresh_token}` o cookie) |
 | POST | `/auth/logout` | Revoca la familia de refresh tokens |
 | GET | `/api/perfil` | Recurso protegido normal |
-| GET | `/api/boveda-critica` | Recurso crítico (requiere `mfa_verified`) |
+| GET | `/api/boveda-critica` (alias `/api/boveda`) | Recurso crítico (requiere `mfa_verified`) |
 | POST | `/auth/mfa/verify` | `{step_up_token, code}` → `elevated_token` · 409 si es replay |
 | GET | `/mfa/qr` | QR `otpauth://` para enrolar Google Authenticator (solo demo) |
 | GET | `/api/demo/stats` | Contador de llamadas a `/auth/refresh` (para la demo) |

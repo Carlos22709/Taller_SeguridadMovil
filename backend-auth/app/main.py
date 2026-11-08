@@ -282,6 +282,7 @@ def perfil(request: Request) -> dict[str, Any]:
 
 
 @app.get("/api/boveda-critica")
+@app.get("/api/boveda")  # la guía usa ambos nombres (sección 2 y sección 4)
 def boveda_critica(request: Request) -> dict[str, Any]:
     claims = bearer_claims(request)
     if not claims.get("mfa_verified"):

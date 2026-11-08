@@ -15,6 +15,31 @@ interface Vault {
   items: { label: string; value: string; detail: string }[];
 }
 
+type VaultResult =
+  | { kind: 'open'; vault: Vault }
+  | { kind: 'mfa_required'; stepUpToken: string }
+  | { kind: 'error'; message: string };
+
+/** Pide la bóveda. Si el elevated_token venció (401) lo descarta y reintenta con el access_token normal. */
+async function requestVault(): Promise<VaultResult> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const elevated = session.getElevatedToken();
+    try {
+      return { kind: 'open', vault: await api.get<Vault>('/api/boveda-critica', elevated ? { token: elevated } : {}) };
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 401 && elevated) {
+        session.clearElevated();
+        continue;
+      }
+      if (e instanceof ApiError && e.status === 403 && e.code === 'mfa_required') {
+        return { kind: 'mfa_required', stepUpToken: String(e.body.step_up_token) };
+      }
+      return { kind: 'error', message: describeError(e) };
+    }
+  }
+  return { kind: 'error', message: 'No se pudo abrir la bóveda.' };
+}
+
 function useCountdown(targetMs: number | null): string | null {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -32,7 +57,7 @@ export function VaultScreen() {
   const [loadedVault, setVault] = useState<Vault | null>(null);
   const [stepUpToken, setStepUpToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true); // al entrar a la pantalla ya se está pidiendo la bóveda
   const [lastCode, setLastCode] = useState<string | null>(null);
   const [replay, setReplay] = useState<{ tone: 'success' | 'danger'; text: string } | null>(null);
   const [replayLoading, setReplayLoading] = useState(false);
@@ -40,40 +65,36 @@ export function VaultScreen() {
   // Al vencer la sesión elevada la información sensible deja de mostrarse.
   const vault = remaining ? loadedVault : null;
 
-  const openVault = useCallback(async (): Promise<void> => {
+  const applyResult = useCallback((result: VaultResult) => {
+    setLoading(false);
+    if (result.kind === 'open') setVault(result.vault);
+    else if (result.kind === 'mfa_required') setStepUpToken(result.stepUpToken); // Step-Up: se pide el 2FA
+    else setError(result.message);
+  }, []);
+
+  // Prueba 4: al abrir la pantalla se intenta leer la bóveda; el 403 abre el modal 2FA automáticamente.
+  useEffect(() => {
+    let alive = true;
+    void requestVault().then((result) => {
+      if (alive) applyResult(result);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [applyResult]);
+
+  const openVault = () => {
     setLoading(true);
     setError(null);
-    try {
-      // Máximo 2 intentos: si el elevated_token venció (401) se descarta y se pide 2FA de nuevo.
-      for (let attempt = 0; attempt < 2; attempt++) {
-        const elevated = session.getElevatedToken();
-        try {
-          setVault(await api.get<Vault>('/api/boveda-critica', elevated ? { token: elevated } : {}));
-          return;
-        } catch (e) {
-          if (e instanceof ApiError && e.status === 401 && elevated) {
-            session.clearElevated();
-            continue;
-          }
-          if (e instanceof ApiError && e.status === 403 && e.code === 'mfa_required') {
-            setStepUpToken(String(e.body.step_up_token)); // Step-Up: se pide el segundo factor
-          } else {
-            setError(describeError(e));
-          }
-          return;
-        }
-      }
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+    void requestVault().then(applyResult);
+  };
 
   const onMfaSuccess = ({ elevatedToken, expiresIn, code }: MfaSuccess) => {
     session.setElevatedToken(elevatedToken, expiresIn); // solo en memoria
     setLastCode(code);
     setReplay(null);
     setStepUpToken(null);
-    void openVault();
+    openVault();
   };
 
   /** Prueba 5: reenviar el MISMO código ya aceptado con un step_up_token nuevo. */
@@ -135,7 +156,7 @@ export function VaultScreen() {
           <CardTitle hint="Con el access_token normal la API responde 403 mfa_required. Tras validar el TOTP obtienes un elevated_token de 10 minutos.">
             Bóveda bloqueada
           </CardTitle>
-          <Button label="Abrir Bóveda Crítica" onPress={() => void openVault()} loading={loading} />
+          <Button label="Abrir Bóveda Crítica" onPress={openVault} loading={loading} />
         </Card>
       )}
 

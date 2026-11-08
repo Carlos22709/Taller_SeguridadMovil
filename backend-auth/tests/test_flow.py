@@ -188,6 +188,12 @@ def test_step_up_flow_and_replay(client):
     assert res.json()["message"] == "Replay Attack Detected"
 
 
+def test_boveda_alias_also_requires_mfa(client):
+    access = login(client).json()["access_token"]
+    res = client.get("/api/boveda", headers={"Authorization": f"Bearer {access}"})
+    assert res.status_code == 403 and res.json()["error"] == "mfa_required"
+
+
 def test_clock_skew_window(client):
     access = login(client).json()["access_token"]
     auth = {"Authorization": f"Bearer {access}"}

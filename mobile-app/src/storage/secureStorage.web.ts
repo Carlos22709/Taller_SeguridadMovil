@@ -8,8 +8,12 @@
  */
 const memory = new Map<string, string>();
 
+export const STORAGE_LOCATIONS = {
+  refreshToken: 'Cookie HttpOnly (JS no la ve)',
+  totpSecret: 'Memoria de la pestaña',
+} as const;
+
 export const secureStorage = {
-  backend: 'Memoria de la pestaña + cookie HttpOnly (web)',
   getItem: async (key: string) => memory.get(key) ?? null,
   setItem: async (key: string, value: string) => {
     memory.set(key, value);

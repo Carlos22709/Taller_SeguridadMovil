@@ -5,7 +5,7 @@ import type { ClientEvent } from '../api/client';
 import { describeError } from '../api/errors';
 import { api, authService } from '../auth/authService';
 import { useSession } from '../auth/useSession';
-import { secureStorage } from '../storage/secureStorage';
+import { STORAGE_LOCATIONS } from '../storage/secureStorage';
 import { Banner, Button, Card, CardTitle, Row, Screen } from '../ui/components';
 import { EventLog, type LogLine } from '../ui/EventLog';
 import { colors } from '../ui/theme';
@@ -112,7 +112,7 @@ export function HomeScreen() {
         <CardTitle>Tu sesión</CardTitle>
         <Row label="Usuario" value={perfil?.email ?? '…'} />
         <Row label="access_token" value={accessToken ? `en memoria · ${accessToken.length} chars` : '—'} />
-        <Row label="refresh_token" value={secureStorage.backend} />
+        <Row label="refresh_token" value={STORAGE_LOCATIONS.refreshToken} />
         <Row label="Expira access" value={perfil ? new Date(perfil.token_expires_at * 1000).toLocaleTimeString() : '…'} />
       </Card>
 

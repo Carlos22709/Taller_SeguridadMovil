@@ -11,8 +11,12 @@ const OPTIONS: SecureStore.SecureStoreOptions = {
   keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
 };
 
+export const STORAGE_LOCATIONS = {
+  refreshToken: 'Keychain / Keystore',
+  totpSecret: 'Keychain / Keystore',
+} as const;
+
 export const secureStorage = {
-  backend: 'Keychain / Keystore (expo-secure-store)',
   getItem: (key: string) => SecureStore.getItemAsync(key, OPTIONS),
   setItem: (key: string, value: string) => SecureStore.setItemAsync(key, value, OPTIONS),
   deleteItem: (key: string) => SecureStore.deleteItemAsync(key, OPTIONS),

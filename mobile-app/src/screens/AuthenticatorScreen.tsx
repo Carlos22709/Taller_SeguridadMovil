@@ -5,7 +5,7 @@ import { API_URL, IS_WEB } from '../config';
 import { bytesToHex } from '../crypto/encoding';
 import { parseTotpInput } from '../crypto/otpauth';
 import { counterToBytes } from '../crypto/totp';
-import { secureStorage } from '../storage/secureStorage';
+import { STORAGE_LOCATIONS } from '../storage/secureStorage';
 import { useLiveTotp, useTotpAccount } from '../totp/TotpContext';
 import { Badge, Banner, Button, Card, CardTitle, Row, Screen } from '../ui/components';
 import { QrScannerModal } from '../ui/QrScannerModal';
@@ -57,7 +57,7 @@ export function AuthenticatorScreen({ onBack }: { onBack?: () => void }) {
             <Row label="H = HMAC-SHA1(K, T)" value="20 bytes" />
             <Row label="offset = H[19] & 0x0F" value="truncamiento" />
             <Row label="código = bin_code % 10⁶" value={live.code ?? '…'} />
-            <Row label="Semilla guardada en" value={secureStorage.backend} />
+            <Row label="Semilla guardada en" value={STORAGE_LOCATIONS.totpSecret} />
           </Card>
 
           <Button label="Eliminar cuenta del Authenticator" variant="danger" onPress={() => void removeAccount()} />

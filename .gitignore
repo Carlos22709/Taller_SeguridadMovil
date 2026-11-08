@@ -1,0 +1,10 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+backend-auth/.env
+
+# Node / Expo (ver también mobile-app/.gitignore)
+node_modules/
+mobile-app/dist/

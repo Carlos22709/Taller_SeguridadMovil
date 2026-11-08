@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: unisabana-seguro
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: JWT_SECRET
+        generateValue: true

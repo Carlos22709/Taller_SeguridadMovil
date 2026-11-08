@@ -1,13 +1,24 @@
+import Constants from 'expo-constants';
 import { Platform } from 'react-native';
+
+const BACKEND_PORT = 8000;
+const METRO_PORT = '8081';
 
 function resolveApiUrl(): string {
   if (Platform.OS === 'web') {
-    // En producción la app web la sirve el mismo backend: mismo origen, sin CORS.
-    // En desarrollo (expo start --web en :8081) se define EXPO_PUBLIC_WEB_API_URL en .env.development.
-    return process.env.EXPO_PUBLIC_WEB_API_URL || window.location.origin;
+    if (process.env.EXPO_PUBLIC_WEB_API_URL) return process.env.EXPO_PUBLIC_WEB_API_URL;
+    const { protocol, hostname, port, origin } = window.location;
+    // `npx expo start --web` (puerto 8081): el backend está en el mismo host, puerto 8000.
+    // Si la app la sirve el propio backend (expo export), es el mismo origen.
+    return port === METRO_PORT ? `${protocol}//${hostname}:${BACKEND_PORT}` : origin;
   }
-  // Teléfono físico: IP LAN del PC (ej. http://192.168.1.20:8000). Emulador Android: 10.0.2.2.
-  return process.env.EXPO_PUBLIC_API_URL || 'http://10.0.2.2:8000';
+
+  if (process.env.EXPO_PUBLIC_API_URL) return process.env.EXPO_PUBLIC_API_URL;
+  // Expo Go / development build: hostUri = "<ip-del-pc>:8081" (el mismo PC que corre `expo start`),
+  // así el celular encuentra el backend sin configurar nada.
+  const devHost = Constants.expoConfig?.hostUri?.split(':')[0];
+  if (devHost) return `http://${devHost}:${BACKEND_PORT}`;
+  return `http://10.0.2.2:${BACKEND_PORT}`; // emulador Android sin servidor de Expo
 }
 
 export const API_URL = resolveApiUrl().replace(/\/+$/, '');

@@ -34,45 +34,39 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers
 - Variables de entorno opcionales: ver [backend-auth/.env.example](backend-auth/.env.example)
   (`cp .env.example .env` y agregar `--env-file .env` al comando).
 
-### App — opción A: Web servida por el backend (la de la sustentación)
+### App (en otra terminal, con el backend corriendo)
 
 ```bash
 cd mobile-app
 npm install
-npx expo export -p web      # genera mobile-app/dist
+npx expo start
 ```
 
-Con el backend corriendo, abrir **http://localhost:8000**. El backend sirve la app en el mismo
-origen, así que no hace falta CORS y la cookie del refresh token es `SameSite=Strict`.
+No hay que configurar IPs: la app deduce sola dónde está el backend (mismo PC, puerto 8000).
 
-### App — opción B: Web en modo desarrollo (hot reload)
+- **Web:** presiona `w` o abre **http://localhost:8081**. Usa siempre `localhost`, no la IP: el navegador
+  solo permite `crypto.subtle` (SHA-1/SHA-256) en `localhost` o HTTPS, y el TOTP y el PKCE lo necesitan.
+- **Celular con Expo Go:** escanea el QR que muestra la terminal (el celular debe estar en la misma Wi-Fi).
+  La app toma la IP del PC del link `exp://<ip>:8081` y llama a `http://<ip>:8000`. El login vuelve a la app
+  con `exp://<ip>:8081/--/callback`, que el backend acepta en desarrollo (`ALLOW_EXPO_GO_REDIRECTS`).
+  - Si el celular no carga, permite **Node.js** (puerto 8081) y **Python** (puerto 8000) en el firewall de Windows.
+- **Development build** (`npx expo run:android`): usa el custom scheme real `unisabana-auth://callback`.
+
+### Variante: web servida por el backend (un solo puerto)
 
 ```bash
-cd mobile-app
-npx expo start --web        # http://localhost:8081 → usa EXPO_PUBLIC_WEB_API_URL de .env.development
+cd mobile-app && npx expo export -p web     # genera mobile-app/dist
 ```
 
-### App — opción C: Android / iOS
-
-El custom scheme `unisabana-auth://` necesita un **development build** (Expo Go usa `exp://`):
-
-```bash
-cd mobile-app
-# IP LAN de tu PC (ipconfig / ifconfig). Emulador Android: http://10.0.2.2:8000
-echo EXPO_PUBLIC_API_URL=http://192.168.1.20:8000 > .env.development.local
-npx expo run:android        # o: npx eas-cli@latest build --profile development
-```
-
-> En Windows, permite a Python en el firewall (red privada) para que el teléfono llegue al puerto 8000.
+Con el backend corriendo, abre **http://localhost:8000**. El backend sirve la app en el mismo origen.
 
 ---
 
-## 2. Publicar con un link HTTPS
+## 2. Opcional: publicar con un link HTTPS
 
-El navegador solo expone `crypto.subtle` (SHA-1/SHA-256) en **contextos seguros**: `localhost` o HTTPS.
-Para compartir un link hace falta HTTPS.
+Solo hace falta para abrir la app web desde otro equipo, porque fuera de `localhost` se exige HTTPS.
 
-**Render (gratis, permanente):** subir el repo a GitHub → en Render *New → Blueprint* → elegir el repo.
+**Render (gratis):** en Render *New → Blueprint* → elegir el repo.
 `render.yaml` construye el `Dockerfile` y genera `JWT_SECRET`. El link queda como
 `https://unisabana-seguro.onrender.com`. El plan gratuito se duerme tras 15 min sin uso: abrir el link
 1 minuto antes de la demo. Como el estado vive en memoria, cada reinicio cierra las sesiones.
@@ -87,7 +81,7 @@ cloudflared tunnel --url http://localhost:8000
 ## 3. Pruebas automáticas
 
 ```bash
-cd backend-auth && python -m pytest -q     # 32 pruebas: RFC 6238/7636, PKCE, refresh, step-up, replay
+cd backend-auth && python -m pytest -q     # 36 pruebas: RFC 6238/7636, PKCE, refresh, step-up, replay
 cd mobile-app  && npm test                 # 27 pruebas: RFC 6238/2202/7636, paridad con Python, cola de refresh
 cd mobile-app  && npm run typecheck && npx expo lint
 ```
@@ -99,8 +93,8 @@ cd mobile-app  && npm run typecheck && npx expo lint
 | # | Prueba | Cómo demostrarla en la app | Resultado esperado |
 |---|---|---|---|
 | 1 | **OAuth + PKCE** | Login → muestra `code_verifier`, `code_challenge` y `state` → *Iniciar sesión con UniSabana*. Se abre el navegador del sistema (en web, una ventana emergente) con el login del servidor → *Autorizar*. | Vuelve a la app con sesión iniciada. En *Inicio*: `access_token` en memoria y `refresh_token` en Keychain/Keystore (en web, cookie HttpOnly). |
-| 2 | **Paridad TOTP** | Abrir `/mfa/qr` y escanearlo con Google Authenticator y con la app (*Authenticator → Escanear QR*, o pegar `JBSWY3DPEHPK3PXP`). | Los mismos 6 dígitos al mismo tiempo. |
-| 3 | **Modo Avión** | Con la cuenta ya cargada, activar Modo Avión (o en web: DevTools → Network → *Offline*) y esperar a que el contador llegue a 0. | El código cambia sin red. La tarjeta "Cómo se obtiene el código" muestra T, el contador de 64 bits y el truncamiento. |
+| 2 | **Paridad TOTP** | Abrir `http://localhost:8000/mfa/qr` y escanearlo con Google Authenticator y con la app (*Authenticator → Escanear QR*, o pegar `JBSWY3DPEHPK3PXP`). | Los mismos 6 dígitos al mismo tiempo. |
+| 3 | **Modo Avión** | Con la cuenta ya cargada, activar Modo Avión (en web: DevTools → Network → *Offline*) y esperar a que el contador llegue a 0. | El código cambia sin red. La tarjeta "Cómo se obtiene el código" muestra T, el contador de 64 bits y el truncamiento. |
 | 4 | **Step-Up + Bóveda** | *Bóveda → Abrir Bóveda Crítica* → la API responde `403 mfa_required` → aparece el modal 2FA → escribir el código. | Se abre la bóveda con un `elevated_token` (`mfa_verified: true`, 10 min y cuenta regresiva). |
 | 5 | **Anti-Replay** | En *Bóveda → Prueba anti-replay → Reenviar el mismo código*. | `409 Conflict · Replay Attack Detected`. |
 

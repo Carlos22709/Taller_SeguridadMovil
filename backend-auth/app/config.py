@@ -39,8 +39,12 @@ ALLOWED_REDIRECT_URIS = _list(
 )
 # Además se permite <origen-de-este-servidor>/callback (la app web servida por este mismo backend).
 ALLOW_SAME_ORIGIN_REDIRECT = os.getenv("ALLOW_SAME_ORIGIN_REDIRECT", "true").lower() == "true"
+# Expo Go (desarrollo): la redirect URI es exp://<ip-del-pc>:8081/--/callback y la IP cambia según la red.
+# En producción (development/standalone build) se usa unisabana-auth://callback y esto se desactiva.
+ALLOW_EXPO_GO_REDIRECTS = os.getenv("ALLOW_EXPO_GO_REDIRECTS", "true").lower() == "true"
+EXPO_GO_REDIRECT_RE = r"^exp://[A-Za-z0-9.\-]+(:\d{1,5})?/--/callback$"
 
-CORS_ORIGINS = _list("CORS_ORIGINS", "http://localhost:8081")
+CORS_ORIGINS = _list("CORS_ORIGINS", "http://localhost:8081,http://127.0.0.1:8081")
 
 # Usuario demo
 DEMO_USER_EMAIL = os.getenv("DEMO_USER_EMAIL", "estudiante@unisabana.edu.co")

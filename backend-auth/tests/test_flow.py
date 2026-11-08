@@ -67,6 +67,20 @@ def test_authorize_page_requires_registered_redirect(client):
     assert res.status_code == 400
 
 
+@pytest.mark.parametrize("uri,expected", [
+    ("exp://192.168.1.20:8081/--/callback", 200),
+    ("exp://10.0.2.2:8081/--/callback", 200),
+    ("exp://evil.example/--/otra", 400),
+    ("evil://192.168.1.20:8081/--/callback", 400),
+])
+def test_expo_go_redirects(client, uri, expected):
+    res = client.get("/oauth/authorize", params={
+        "response_type": "code", "client_id": config.CLIENT_ID, "redirect_uri": uri,
+        "state": "x", "code_challenge": pkce.s256_challenge("a" * 43), "code_challenge_method": "S256",
+    })
+    assert res.status_code == expected
+
+
 def test_authorize_rejects_plain_method(client):
     res = client.get("/oauth/authorize", params={
         "response_type": "code", "client_id": config.CLIENT_ID, "redirect_uri": REDIRECT,

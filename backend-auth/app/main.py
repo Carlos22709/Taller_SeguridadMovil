@@ -79,6 +79,8 @@ def bearer_claims(request: Request) -> dict[str, Any]:
 def is_allowed_redirect(request: Request, redirect_uri: str) -> bool:
     if redirect_uri in config.ALLOWED_REDIRECT_URIS:
         return True
+    if config.ALLOW_EXPO_GO_REDIRECTS and re.fullmatch(config.EXPO_GO_REDIRECT_RE, redirect_uri):
+        return True
     if config.ALLOW_SAME_ORIGIN_REDIRECT:
         return redirect_uri == f"{str(request.base_url).rstrip('/')}/callback"
     return False

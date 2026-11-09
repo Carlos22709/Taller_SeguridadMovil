@@ -1,7 +1,6 @@
 import { StatusBar } from 'expo-status-bar';
-import * as WebBrowser from 'expo-web-browser';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
 import { authService } from './src/auth/authService';
@@ -12,13 +11,6 @@ import { LoginScreen } from './src/screens/LoginScreen';
 import { VaultScreen } from './src/screens/VaultScreen';
 import { TotpProvider } from './src/totp/TotpContext';
 import { colors, space } from './src/ui/theme';
-
-// Web: si esta pestaña es la ventana emergente que volvió a /callback, le entrega la URL
-// (con code y state) a la ventana principal y se cierra. En nativo no hace nada.
-WebBrowser.maybeCompleteAuthSession();
-
-const isAuthPopup =
-  Platform.OS === 'web' && typeof window !== 'undefined' && !!window.opener && window.location.pathname === '/callback';
 
 type Tab = 'home' | 'authenticator' | 'vault';
 const TABS: Array<{ key: Tab; label: string; icon: string }> = [
@@ -78,14 +70,6 @@ function Root() {
 }
 
 export default function App() {
-  if (isAuthPopup) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator color={colors.brand} />
-        <Text style={{ color: colors.muted, marginTop: space.md }}>Completando inicio de sesión…</Text>
-      </View>
-    );
-  }
   return (
     <SafeAreaProvider>
       <TotpProvider>

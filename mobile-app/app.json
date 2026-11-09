@@ -20,13 +20,6 @@
       "predictiveBackGestureEnabled": false,
       "package": "co.edu.unisabana.seguridadmovil"
     },
-    "web": {
-      "favicon": "./assets/favicon.png",
-      "output": "single",
-      "bundler": "metro",
-      "name": "UniSabana Seguro",
-      "themeColor": "#0B3A73"
-    },
     "plugins": [
       "expo-secure-store",
       "expo-web-browser",

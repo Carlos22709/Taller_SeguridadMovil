@@ -1,40 +1,60 @@
 # Seguridad Móvil — OAuth 2.0 + PKCE, Almacenamiento Seguro y Step-Up 2FA (TOTP)
 
-Laboratorio de Desarrollo Móvil — Universidad de La Sabana, Sesión 14.
+Laboratorio de Desarrollo Móvil — Universidad de La Sabana.
 
-App en **React Native (Expo SDK 58, TypeScript estricto)** + backend **FastAPI** en memoria.
-Ninguna librería "caja negra": el TOTP, el HMAC-SHA1, el Base32 y el PKCE están implementados a mano.
+App en **React Native (Expo SDK 58, TypeScript estricto)** y backend en **FastAPI** con almacenamiento en memoria.
+El TOTP, el HMAC-SHA1, el Base32 y el PKCE están implementados a mano, sin librerías como `otplib` o `speakeasy`.
 
 ```
-/mobile-app     App Expo (Android / iOS / Web)
+/mobile-app     App Expo (se ejecuta con Expo Go)
 /backend-auth   Servidor de autorización + API protegida (FastAPI)
-Dockerfile      Imagen única: compila la app web y la sirve desde el backend (un solo link)
-render.yaml     Despliegue en Render (HTTPS)
 ```
 
 ---
 
-## 1. Ejecutar en local (5 minutos)
+## Cómo ejecutarlo
 
-**Requisitos:** Python 3.12+, Node 20.19+ (probado con Node 24).
+**Requisitos:** Python 3.12+, Node 20.19+ y la app **Expo Go** en el celular. El celular y el PC deben estar en la misma red Wi-Fi.
 
-### Backend
+### 1. Backend
 
 ```bash
 cd backend-auth
 python -m venv .venv
-# Windows: .venv\Scripts\activate   ·   macOS/Linux: source .venv/bin/activate
+.venv\Scripts\activate          # macOS/Linux: source .venv/bin/activate
 pip install -r requirements-dev.txt
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers
+uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-- Documentación interactiva: http://localhost:8000/docs
-- QR de enrolamiento 2FA: http://localhost:8000/mfa/qr
-- Usuario demo: `estudiante@unisabana.edu.co` / `sabana123` · Semilla TOTP: `JBSWY3DPEHPK3PXP`
-- Variables de entorno opcionales: ver [backend-auth/.env.example](backend-auth/.env.example)
-  (`cp .env.example .env` y agregar `--env-file .env` al comando).
+### 2. Variables de entorno (opcional)
 
-### App (en otra terminal, con el backend corriendo)
+El backend funciona sin configurar nada: todas las variables tienen un valor por defecto. Para cambiarlas:
+
+```bash
+cd backend-auth
+copy .env.example .env          # macOS/Linux: cp .env.example .env
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --env-file .env
+```
+
+| Variable | Por defecto | Descripción |
+|---|---|---|
+| `JWT_SECRET` | aleatorio en cada arranque | Secreto para firmar los JWT |
+| `ACCESS_TOKEN_TTL` | `300` | Vida del `access_token` (s) |
+| `REFRESH_TOKEN_TTL` | `2592000` | Vida del `refresh_token` (30 días) |
+| `ELEVATED_TOKEN_TTL` | `600` | Vida del `elevated_token` (s) |
+| `STEP_UP_TOKEN_TTL` | `300` | Vida del `step_up_token` (s) |
+| `REPLAY_CACHE_TTL` | `90` | Tiempo que un código TOTP queda bloqueado tras usarse (s) |
+| `ALLOWED_REDIRECT_URIS` | `unisabana-auth://callback` | Redirect URIs registradas, separadas por coma |
+| `ALLOW_EXPO_GO_REDIRECTS` | `true` | Acepta `exp://<ip>:8081/--/callback` (Expo Go) |
+| `DEMO_USER_EMAIL` / `DEMO_USER_PASSWORD` | ver *Datos de prueba* | Usuario demo |
+| `TOTP_SECRET` | `JBSWY3DPEHPK3PXP` | Semilla Base32 del usuario demo |
+
+La app no necesita variables: toma la IP del backend del link de Expo. Si el backend corre en otra máquina,
+se puede fijar con `EXPO_PUBLIC_API_URL=http://<ip>:8000` antes de `npx expo start`.
+
+### 3. App
+
+En otra terminal, con el backend corriendo:
 
 ```bash
 cd mobile-app
@@ -42,133 +62,119 @@ npm install
 npx expo start
 ```
 
-No hay que configurar IPs: la app deduce sola dónde está el backend (mismo PC, puerto 8000).
+Escanea el QR de la terminal con Expo Go. No hay que configurar IPs: la app toma la IP del PC del link
+`exp://<ip>:8081` y llama al backend en `http://<ip>:8000`.
 
-- **Web:** presiona `w` o abre **http://localhost:8081**. Usa siempre `localhost`, no la IP: el navegador
-  solo permite `crypto.subtle` (SHA-1/SHA-256) en `localhost` o HTTPS, y el TOTP y el PKCE lo necesitan.
-- **Celular con Expo Go:** escanea el QR que muestra la terminal (el celular debe estar en la misma Wi-Fi).
-  La app toma la IP del PC del link `exp://<ip>:8081` y llama a `http://<ip>:8000`. El login vuelve a la app
-  con `exp://<ip>:8081/--/callback`, que el backend acepta en desarrollo (`ALLOW_EXPO_GO_REDIRECTS`).
-  - Si el celular no carga, permite **Node.js** (puerto 8081) y **Python** (puerto 8000) en el firewall de Windows.
-- **Development build** (`npx expo run:android`): usa el custom scheme real `unisabana-auth://callback`.
+Si el celular no carga, permite **Node.js** y **Python** en el firewall de Windows (redes privadas).
 
-### Variante: web servida por el backend (un solo puerto)
+### Datos de prueba
 
-```bash
-cd mobile-app && npx expo export -p web     # genera mobile-app/dist
-```
-
-Con el backend corriendo, abre **http://localhost:8000**. El backend sirve la app en el mismo origen.
+| | |
+|---|---|
+| Usuario | `estudiante@unisabana.edu.co` |
+| Contraseña | `sabana123` |
+| Semilla TOTP | `JBSWY3DPEHPK3PXP` |
+| QR para Google Authenticator | `http://<ip-del-pc>:8000/mfa/qr` |
 
 ---
 
-## 2. Opcional: publicar con un link HTTPS
+## Punto 1 — OAuth 2.0 con PKCE
 
-Solo hace falta para abrir la app web desde otro equipo, porque fuera de `localhost` se exige HTTPS.
+Archivos: [oauth.ts](mobile-app/src/auth/oauth.ts), [pkce.ts](mobile-app/src/crypto/pkce.ts), [main.py](backend-auth/app/main.py)
 
-**Render (gratis):** en Render *New → Blueprint* → elegir el repo.
-`render.yaml` construye el `Dockerfile` y genera `JWT_SECRET`. El link queda como
-`https://unisabana-seguro.onrender.com`. El plan gratuito se duerme tras 15 min sin uso: abrir el link
-1 minuto antes de la demo. Como el estado vive en memoria, cada reinicio cierra las sesiones.
+- **`code_verifier`:**
+  - 64 caracteres del alfabeto *unreserved* (RFC 7636);
+  - se generan con `getRandomBytes` y *rejection sampling* para evitar sesgo de módulo.
+- **`code_challenge`:**
+  - `BASE64URL(SHA256(code_verifier))` sin relleno, con método `S256`;
+  - verificado con el ejemplo del RFC 7636 (Apéndice B).
+- **Navegador del sistema:**
+  - `WebBrowser.openAuthSessionAsync` (ASWebAuthenticationSession en iOS y Custom Tabs en Android). **No se usa WebView.**
+  - Retorno por deep link al `redirect_uri` de la app.
+- **`state` anti-CSRF:**
+  - es aleatorio en cada solicitud y se compara en tiempo constante;
+  - si no coincide, el flujo se aborta antes del canje.
+- **Backend:**
+  - exige `S256` y una `redirect_uri` registrada;
+  - el `code` es de un solo uso y dura 60 s;
+  - en el canje valida que `SHA256(code_verifier) === code_challenge`.
+- **Cliente público:** la app no tiene `client_secret`.
 
-**Túnel temporal desde tu PC (sin cuenta):** con el backend sirviendo la app (opción A):
-```bash
-cloudflared tunnel --url http://localhost:8000
-```
+## Punto 2 — Almacenamiento seguro y Silent Refresh
 
----
+Archivos: [session.ts](mobile-app/src/auth/session.ts), [secureStorage.ts](mobile-app/src/storage/secureStorage.ts), [client.ts](mobile-app/src/api/client.ts)
 
-## 3. Pruebas automáticas
+- **`access_token` (5 min):** vive solo en memoria y nunca se persiste.
+- **`refresh_token` (30 días):** se guarda en **`expo-secure-store`** (Keychain en iOS, Keystore en Android) con `WHEN_UNLOCKED_THIS_DEVICE_ONLY`.
+- **Silent Refresh Queue**, cuando una petición recibe **401**:
+  - se hace **una sola** llamada a `/auth/refresh`;
+  - las demás peticiones esperan en una cola de promesas;
+  - al obtener el token nuevo, cada petición de la cola se reintenta una vez.
+- **Si el refresh falla:**
+  - se rechaza la cola y se borra el almacenamiento seguro;
+  - la app vuelve sola al login;
+  - un fallo de red no cierra la sesión.
+- **Backend:**
+  - el refresh token **rota** en cada uso;
+  - si se presenta uno ya usado (reuso), se revoca toda la familia;
+  - los tokens se guardan hasheados con SHA-256.
 
-```bash
-cd backend-auth && python -m pytest -q     # 37 pruebas: RFC 6238/7636, PKCE, refresh, step-up, replay
-cd mobile-app  && npm test                 # 27 pruebas: RFC 6238/2202/7636, paridad con Python, cola de refresh
-cd mobile-app  && npm run typecheck && npx expo lint
-```
+## Punto 3 — Authenticator propio (TOTP RFC 6238)
 
----
+Archivos: [totp.ts](mobile-app/src/crypto/totp.ts), [hmac.ts](mobile-app/src/crypto/hmac.ts), [base32.ts](mobile-app/src/crypto/base32.ts)
 
-## 4. Guion de la sustentación (5 pruebas de aceptación)
+- **HMAC-SHA1 a mano:** `expo-crypto` solo trae hashes, así que el HMAC se construye como `H((K⊕opad) ‖ H((K⊕ipad) ‖ m))`.
+- **Contador:** `T = floor(unix / 30)`, codificado como entero de 64 bits big-endian.
+- **Truncamiento dinámico:**
+  - `offset = H[19] & 0x0F`;
+  - se toman 31 bits desde el offset;
+  - el código es `bin_code % 10^6`, completado a 6 dígitos.
+- **Validación:** los vectores del RFC 6238 y paridad con la implementación del backend en Python.
+- **Ingreso de la semilla:**
+  - escaneando el QR `otpauth://` con la cámara (`expo-camera`);
+  - o escribiendo la semilla Base32 a mano.
+  - La semilla se guarda en SecureStore.
+- **Interfaz:**
+  - código grande en fuente monoespaciada;
+  - barra de 30 s a 0;
+  - el código no parpadea al recalcularse.
+- **Sin red:** todo el cálculo ocurre en el dispositivo y **funciona en Modo Avión**.
 
-| # | Prueba | Cómo demostrarla en la app | Resultado esperado |
-|---|---|---|---|
-| 1 | **OAuth + PKCE** | Login → muestra `code_verifier`, `code_challenge` y `state` → *Iniciar sesión con UniSabana*. Se abre el navegador del sistema (en web, una ventana emergente) con el login del servidor → *Autorizar*. | Vuelve a la app con sesión iniciada. En *Inicio*: `access_token` en memoria y `refresh_token` en Keychain/Keystore (en web, cookie HttpOnly). |
-| 2 | **Paridad TOTP** | Abrir `http://localhost:8000/mfa/qr` y escanearlo con Google Authenticator y con la app (*Authenticator → Escanear QR*, o pegar `JBSWY3DPEHPK3PXP`). | Los mismos 6 dígitos al mismo tiempo. |
-| 3 | **Modo Avión** | Con la cuenta ya cargada, activar Modo Avión (en web: DevTools → Network → *Offline*) y esperar a que el contador llegue a 0. | El código cambia sin red. La tarjeta "Cómo se obtiene el código" muestra T, el contador de 64 bits y el truncamiento. |
-| 4 | **Step-Up + Bóveda** | Entrar a la pestaña *Bóveda*: la app pide el recurso, la API responde `403 mfa_required` y aparece sola el modal 2FA → escribir el código. | Se abre la bóveda con un `elevated_token` (`mfa_verified: true`, 10 min y cuenta regresiva). |
-| 5 | **Anti-Replay** | En *Bóveda → Prueba anti-replay → Reenviar el mismo código*. | `409 Conflict · Replay Attack Detected`. |
+## Punto 4 — Step-Up Authentication y Anti-Replay
 
-Extra (Punto 2): *Inicio → Expirar token + 3 peticiones simultáneas*. El registro muestra 3 respuestas
-401, las peticiones en cola, **un solo** `POST /auth/refresh` y los reintentos con 200. El contador del
-servidor confirma 1 llamada. *Revocar refresh_token y forzar 401* muestra que la app limpia todo y
-vuelve al login sola.
+Archivos: [main.py](backend-auth/app/main.py), [totp.py](backend-auth/app/totp.py), [VaultScreen.tsx](mobile-app/src/screens/VaultScreen.tsx), [MfaModal.tsx](mobile-app/src/ui/MfaModal.tsx)
 
----
-
-## 5. Cómo se cumple cada punto
-
-### Punto 1 — OAuth 2.0 con PKCE ([oauth.ts](mobile-app/src/auth/oauth.ts), [pkce.ts](mobile-app/src/crypto/pkce.ts), [main.py](backend-auth/app/main.py))
-- `code_verifier`: 64 caracteres del alfabeto *unreserved*. Se generan con `getRandomBytes` y *rejection sampling* para no introducir sesgo de módulo.
-- `code_challenge = BASE64URL(SHA256(verifier))` sin relleno. Lo verifican el ejemplo del RFC 7636 (Apéndice B) y los tests.
-- Navegador seguro: `WebBrowser.openAuthSessionAsync` (ASWebAuthenticationSession / Custom Tabs). **No hay WebView.**
-- `state` aleatorio por solicitud, comparado en tiempo constante. Si no coincide, se aborta antes del canje.
-- El backend exige `S256`, `redirect_uri` registrada exacta y un `code` de un solo uso (60 s). Además valida `SHA256(code_verifier) === code_challenge`.
-- Cliente público: la app **no tiene `client_secret`**.
-
-### Punto 2 — Almacenamiento seguro y Silent Refresh ([session.ts](mobile-app/src/auth/session.ts), [secureStorage.ts](mobile-app/src/storage/secureStorage.ts), [client.ts](mobile-app/src/api/client.ts))
-- `access_token` (5 min) y `elevated_token`: solo en memoria (store de módulo + `useSyncExternalStore`).
-- `refresh_token` (30 días):
-  - en nativo, `expo-secure-store` con `WHEN_UNLOCKED_THIS_DEVICE_ONLY` (Keychain / Keystore);
-  - en web, cookie **HttpOnly + SameSite=Strict + Path=/auth**, que JavaScript nunca ve, porque el navegador no tiene Keychain.
-- Cola de promesas ante un 401:
-  - una sola renovación; las peticiones nuevas esperan en la cola;
-  - al renovar, se reintenta cada una una vez;
-  - si el refresh falla, se rechaza la cola, se limpia el almacenamiento y la app vuelve al login.
-- Casos borde cubiertos:
-  - un 401 que llega tarde con el token viejo se reintenta sin renovar otra vez;
-  - un fallo de red no borra la sesión.
-- Backend: **rotación** del refresh token y **detección de reuso**. Si alguien presenta un token ya rotado, se revoca toda la familia. Los tokens se guardan hasheados con SHA-256.
-
-### Punto 3 — Authenticator propio ([totp.ts](mobile-app/src/crypto/totp.ts), [hmac.ts](mobile-app/src/crypto/hmac.ts), [base32.ts](mobile-app/src/crypto/base32.ts))
-- `expo-crypto` solo trae `digest`, así que **HMAC-SHA1 se construye a mano**: `H((K⊕opad) ‖ H((K⊕ipad) ‖ m))`.
-- `T = floor(unix/30)` codificado como entero de 64 bits big-endian. Se divide en parte alta y baja porque los operadores de bits de JS trabajan con 32 bits.
-- Truncamiento dinámico: `offset = H[19] & 0x0F`, luego `bin_code % 10^6` con `padStart(6, '0')`.
-- Validado con los 6 vectores del RFC 6238. La implementación TS y la de Python coinciden, también con contadores mayores a 2³².
-- Ingesta del secreto: QR con `expo-camera` (URI `otpauth://`) o semilla Base32 / URI pegada con validación.
-- UI:
-  - código monoespaciado grande;
-  - barra animada continua de 30 s a 0 que pasa a rojo en los últimos 5 s;
-  - el código solo se recalcula al cambiar T, así que no parpadea.
-- La semilla se guarda en almacenamiento seguro.
-
-### Punto 4 — Step-Up y Anti-Replay ([main.py](backend-auth/app/main.py), [totp.py](backend-auth/app/totp.py))
-- `GET /api/boveda-critica` con un token sin `mfa_verified` responde `403 {error: "mfa_required", step_up_token}`.
-- `POST /auth/mfa/verify`:
-  - valida el `step_up_token` (JWT `typ=step_up`, 5 min), que no sirve como access token;
-  - revisa **primero** la caché anti-replay (`usuario:código`, TTL 90 s) y responde **409** si el código ya está ahí;
-  - después valida en las ventanas **C-1, C, C+1**;
-  - limita a 5 intentos por `step_up_token`.
-- Si todo es correcto devuelve un `elevated_token` con `mfa_verified: true` (10 min).
-
-### Endurecimiento adicional
-- `Referrer-Policy: no-referrer`, para que el `?code=` no se filtre.
-- `X-Frame-Options: DENY` en el login (anti-clickjacking).
-- `Cache-Control: no-store` en las respuestas de tokens.
-- JWT con algoritmo fijo HS256 (evita `alg: none`).
-- Contraseñas con PBKDF2-SHA256 (200 000 iteraciones).
+- **Acceso sin 2FA:** con un token normal, `GET /api/boveda-critica` responde `403 {"error": "mfa_required", "step_up_token": "..."}`.
+- **Al abrir la pantalla Bóveda:**
+  - la app atrapa el 403 y muestra el modal 2FA;
+  - el modal usa teclado numérico.
+- **`POST /auth/mfa/verify`:**
+  - valida el `step_up_token`, que es temporal (5 min) y no sirve como access token;
+  - **anti-replay:** si el código ya fue usado (caché `usuario:código` con TTL de 90 s), responde **`409 Replay Attack Detected`**;
+  - valida el TOTP en las ventanas **C-1, C y C+1** para tolerar desfase de reloj;
+  - limita los intentos a 5 por `step_up_token`.
+- **Si el código es correcto:**
+  - devuelve un **`elevated_token`** con `mfa_verified: true`, válido por 10 min;
+  - con ese token la bóveda responde 200.
 
 ---
 
-## 6. Endpoints
+## Endpoints
 
 | Método | Ruta | Descripción |
 |---|---|---|
-| GET/POST | `/oauth/authorize` | Login en el navegador y redirección con `code` + `state` |
-| POST | `/auth/oauth/token` | Canje `code` + `code_verifier` por tokens (form-urlencoded) |
-| POST | `/auth/refresh` | Rotación del refresh token (JSON `{refresh_token}` o cookie) |
-| POST | `/auth/logout` | Revoca la familia de refresh tokens |
+| GET/POST | `/oauth/authorize` | Login en el navegador del sistema y redirección con `code` + `state` |
+| POST | `/auth/oauth/token` | Canje de `code` + `code_verifier` por tokens |
+| POST | `/auth/refresh` | Rotación del refresh token |
+| POST | `/auth/logout` | Revoca el refresh token |
 | GET | `/api/perfil` | Recurso protegido normal |
-| GET | `/api/boveda-critica` (alias `/api/boveda`) | Recurso crítico (requiere `mfa_verified`) |
-| POST | `/auth/mfa/verify` | `{step_up_token, code}` → `elevated_token` · 409 si es replay |
-| GET | `/mfa/qr` | QR `otpauth://` para enrolar Google Authenticator (solo demo) |
-| GET | `/api/demo/stats` | Contador de llamadas a `/auth/refresh` (para la demo) |
+| GET | `/api/boveda-critica` | Recurso crítico; requiere `mfa_verified` |
+| POST | `/auth/mfa/verify` | `{step_up_token, code}` → `elevated_token`; 409 si es replay |
+| GET | `/mfa/qr` | QR `otpauth://` para enrolar el Authenticator |
+
+## Pruebas automáticas
+
+```bash
+cd backend-auth && python -m pytest -q    # 36 pruebas: RFC 6238/7636, PKCE, refresh, step-up, replay
+cd mobile-app && npm test                 # 27 pruebas: RFC 6238/2202/7636, paridad con Python, cola de refresh
+```

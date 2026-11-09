@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Linking, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { API_URL, IS_WEB } from '../config';
+import { API_URL } from '../config';
 import { bytesToHex } from '../crypto/encoding';
 import { parseTotpInput } from '../crypto/otpauth';
 import { counterToBytes } from '../crypto/totp';
@@ -89,9 +89,6 @@ export function AuthenticatorScreen({ onBack }: { onBack?: () => void }) {
             variant="ghost"
             onPress={() => void Linking.openURL(`${API_URL}/mfa/qr`)}
           />
-          {IS_WEB ? (
-            <Text style={styles.note}>En web la semilla vive solo en memoria de la pestaña (no hay Keychain en el navegador).</Text>
-          ) : null}
         </Card>
       )}
 
@@ -122,5 +119,4 @@ const styles = StyleSheet.create({
     color: colors.ink,
     backgroundColor: colors.surface,
   },
-  note: { color: colors.muted, fontSize: 12, marginTop: space.md, lineHeight: 17 },
 });

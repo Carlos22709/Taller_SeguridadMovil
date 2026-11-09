@@ -26,11 +26,14 @@ export const fonts = {
   mono: Platform.select({
     ios: 'Menlo',
     android: 'monospace',
-    default: 'ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace',
+    default: 'monospace',
   }),
 };
 
-export const shadow = Platform.select({
-  web: { boxShadow: '0 1px 2px rgba(15,27,51,.06), 0 6px 20px rgba(15,27,51,.06)' },
-  default: { shadowColor: '#0F1B33', shadowOpacity: 0.08, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 2 },
-});
+export const shadow = {
+  shadowColor: '#0F1B33',
+  shadowOpacity: 0.08,
+  shadowRadius: 12,
+  shadowOffset: { width: 0, height: 4 },
+  elevation: 2,
+};

@@ -39,7 +39,7 @@ def authorize(client, verifier, state="estado-123", redirect=REDIRECT):
     return parse_qs(location.query)
 
 
-def login(client, delivery="body"):
+def login(client):
     verifier = secrets.token_urlsafe(48)
     query = authorize(client, verifier)
     res = client.post("/auth/oauth/token", data={
@@ -48,7 +48,6 @@ def login(client, delivery="body"):
         "redirect_uri": REDIRECT,
         "client_id": config.CLIENT_ID,
         "code_verifier": verifier,
-        "token_delivery": delivery,
     })
     assert res.status_code == 200, res.text
     return res
@@ -130,13 +129,6 @@ def test_token_response_has_no_store_and_both_tokens(client):
     assert res.headers["cache-control"] == "no-store"
 
 
-def test_cookie_delivery_hides_refresh_token(client):
-    res = login(client, delivery="cookie")
-    assert "refresh_token" not in res.json()
-    cookie = res.headers["set-cookie"]
-    assert "HttpOnly" in cookie and "SameSite=strict" in cookie and "Path=/auth" in cookie
-
-
 # ---------------- Refresh ----------------
 def test_refresh_rotates_and_detects_reuse(client):
     first = login(client).json()["refresh_token"]
@@ -150,10 +142,9 @@ def test_refresh_rotates_and_detects_reuse(client):
     assert client.post("/auth/refresh", json={"refresh_token": second}).status_code == 401
 
 
-def test_refresh_via_cookie(client):
-    login(client, delivery="cookie")  # TestClient guarda la cookie
-    res = client.post("/auth/refresh")
-    assert res.status_code == 200 and "refresh_token" not in res.json()
+def test_refresh_without_token_is_rejected(client):
+    assert client.post("/auth/refresh").status_code == 401
+    assert client.post("/auth/refresh", json={}).status_code == 401
 
 
 def test_protected_api_requires_valid_token(client):

@@ -5,14 +5,12 @@ from __future__ import annotations
 import logging
 import re
 import time
-from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
 
 import segno
 from fastapi import FastAPI, Form, Request
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel
 
 from . import config, pages, pkce, tokens, totp
@@ -23,15 +21,6 @@ log = logging.getLogger("auth")
 
 app = FastAPI(title="UniSabana Auth — OAuth 2.0 + PKCE + Step-Up TOTP", version="1.0.0")
 store = build_store()
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=config.CORS_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type"],
-)
-
 
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
@@ -76,34 +65,14 @@ def bearer_claims(request: Request) -> dict[str, Any]:
                        headers={"WWW-Authenticate": f'Bearer error="invalid_token"'}) from exc
 
 
-def is_allowed_redirect(request: Request, redirect_uri: str) -> bool:
+def is_allowed_redirect(redirect_uri: str) -> bool:
     if redirect_uri in config.ALLOWED_REDIRECT_URIS:
         return True
-    if config.ALLOW_EXPO_GO_REDIRECTS and re.fullmatch(config.EXPO_GO_REDIRECT_RE, redirect_uri):
-        return True
-    if config.ALLOW_SAME_ORIGIN_REDIRECT:
-        return redirect_uri == f"{str(request.base_url).rstrip('/')}/callback"
-    return False
+    return bool(config.ALLOW_EXPO_GO_REDIRECTS and re.fullmatch(config.EXPO_GO_REDIRECT_RE, redirect_uri))
 
 
 def with_query(uri: str, params: dict[str, str]) -> str:
     return f"{uri}{'&' if '?' in uri else '?'}{urlencode(params)}"
-
-
-def set_refresh_cookie(request: Request, response: Response, refresh_token: str) -> None:
-    response.set_cookie(
-        config.REFRESH_COOKIE_NAME,
-        refresh_token,
-        max_age=config.REFRESH_TOKEN_TTL,
-        httponly=True,  # JavaScript no puede leerlo
-        secure=request.url.scheme == "https",
-        samesite="strict",
-        path=config.REFRESH_COOKIE_PATH,
-    )
-
-
-def clear_refresh_cookie(response: Response) -> None:
-    response.delete_cookie(config.REFRESH_COOKIE_NAME, path=config.REFRESH_COOKIE_PATH)
 
 
 # ---------------------------------------------------------------------------
@@ -112,11 +81,11 @@ def clear_refresh_cookie(response: Response) -> None:
 AUTHORIZE_FIELDS = ("response_type", "client_id", "redirect_uri", "state", "code_challenge", "code_challenge_method")
 
 
-def validate_authorize(request: Request, params: dict[str, str]) -> str | None:
+def validate_authorize(params: dict[str, str]) -> str | None:
     """Devuelve un mensaje de error o None si la solicitud es válida."""
     if params.get("client_id") != config.CLIENT_ID:
         return "client_id desconocido."
-    if not is_allowed_redirect(request, params.get("redirect_uri", "")):
+    if not is_allowed_redirect(params.get("redirect_uri", "")):
         return "redirect_uri no registrada para este cliente."
     if params.get("response_type") != "code":
         return "response_type debe ser 'code'."
@@ -132,14 +101,13 @@ def validate_authorize(request: Request, params: dict[str, str]) -> str | None:
 @app.get("/oauth/authorize", response_class=HTMLResponse)
 def authorize_form(request: Request) -> HTMLResponse:
     params = {k: request.query_params.get(k, "") for k in AUTHORIZE_FIELDS}
-    if error := validate_authorize(request, params):
+    if error := validate_authorize(params):
         return HTMLResponse(pages.error_page(error), status_code=400)
     return HTMLResponse(pages.login_page(params, demo_email=config.DEMO_USER_EMAIL))
 
 
 @app.post("/oauth/authorize", response_model=None)
 def authorize_submit(
-    request: Request,
     response_type: str = Form(""),
     client_id: str = Form(""),
     redirect_uri: str = Form(""),
@@ -154,7 +122,7 @@ def authorize_submit(
         "response_type": response_type, "client_id": client_id, "redirect_uri": redirect_uri,
         "state": state, "code_challenge": code_challenge, "code_challenge_method": code_challenge_method,
     }
-    if error := validate_authorize(request, params):
+    if error := validate_authorize(params):
         return HTMLResponse(pages.error_page(error), status_code=400)
 
     if decision == "deny":
@@ -174,13 +142,11 @@ def authorize_submit(
 
 @app.post("/auth/oauth/token")
 def token_exchange(
-    request: Request,
     grant_type: str = Form(""),
     code: str = Form(""),
     redirect_uri: str = Form(""),
     client_id: str = Form(""),
     code_verifier: str = Form(""),
-    token_delivery: str = Form("body"),
 ) -> JSONResponse:
     if grant_type != "authorization_code":
         raise ApiError(400, "unsupported_grant_type", "Solo se admite authorization_code.")
@@ -198,69 +164,55 @@ def token_exchange(
 
     access_token, ttl = tokens.create_access_token(record.user_id)
     refresh_token = store.issue_refresh_token(record.user_id)
-    body: dict[str, Any] = {"access_token": access_token, "token_type": "Bearer", "expires_in": ttl}
-    use_cookie = token_delivery == "cookie"
-    if not use_cookie:
-        # App nativa: lo guarda en Keychain / Keystore (expo-secure-store).
-        body["refresh_token"] = refresh_token
-        body["refresh_expires_in"] = config.REFRESH_TOKEN_TTL
-
-    response = JSONResponse(body, headers=NO_STORE)
-    if use_cookie:
-        # Cliente web: el navegador no tiene Keychain/Keystore; el equivalente es una cookie HttpOnly.
-        set_refresh_cookie(request, response, refresh_token)
-    log.info("token: sesión emitida para %s (entrega=%s)", record.user_id, token_delivery)
-    return response
+    log.info("token: sesión emitida para %s", record.user_id)
+    # La app guarda el refresh_token en Keychain / Keystore (expo-secure-store).
+    return JSONResponse(
+        {
+            "access_token": access_token,
+            "token_type": "Bearer",
+            "expires_in": ttl,
+            "refresh_token": refresh_token,
+            "refresh_expires_in": config.REFRESH_TOKEN_TTL,
+        },
+        headers=NO_STORE,
+    )
 
 
 # ---------------------------------------------------------------------------
 # Punto 2 — Refresh con rotación (y detección de reuso)
 # ---------------------------------------------------------------------------
-async def _read_refresh_token(request: Request) -> tuple[str | None, bool]:
-    """Devuelve (token, viene_de_cookie)."""
-    if "application/json" in request.headers.get("content-type", ""):
-        try:
-            data = await request.json()
-        except ValueError:
-            data = {}
-        if isinstance(data, dict) and isinstance(data.get("refresh_token"), str):
-            return data["refresh_token"], False
-    cookie = request.cookies.get(config.REFRESH_COOKIE_NAME)
-    return (cookie, True) if cookie else (None, False)
+async def _read_refresh_token(request: Request) -> str | None:
+    """Lee {"refresh_token": "..."} del cuerpo JSON."""
+    try:
+        data = await request.json()
+    except ValueError:
+        return None
+    token = data.get("refresh_token") if isinstance(data, dict) else None
+    return token if isinstance(token, str) and token else None
 
 
 @app.post("/auth/refresh")
 async def refresh(request: Request) -> JSONResponse:
-    token, from_cookie = await _read_refresh_token(request)
+    token = await _read_refresh_token(request)
     result = store.rotate_refresh_token(token) if token else None
     log.info("refresh: llamada #%d -> %s", store.refresh_calls, "ok" if result else "rechazado")
     if result is None:
-        response = JSONResponse(
-            {"error": "invalid_refresh_token", "message": "Refresh token vencido, revocado o inexistente."},
-            status_code=401, headers=NO_STORE,
-        )
-        clear_refresh_cookie(response)
-        return response
+        raise ApiError(401, "invalid_refresh_token", "Refresh token vencido, revocado o inexistente.", headers=NO_STORE)
 
     user_id, new_refresh = result
     access_token, ttl = tokens.create_access_token(user_id)
-    body: dict[str, Any] = {"access_token": access_token, "token_type": "Bearer", "expires_in": ttl}
-    if not from_cookie:
-        body["refresh_token"] = new_refresh
-    response = JSONResponse(body, headers=NO_STORE)
-    if from_cookie:
-        set_refresh_cookie(request, response, new_refresh)
-    return response
+    return JSONResponse(
+        {"access_token": access_token, "token_type": "Bearer", "expires_in": ttl, "refresh_token": new_refresh},
+        headers=NO_STORE,
+    )
 
 
 @app.post("/auth/logout", status_code=204)
 async def logout(request: Request) -> Response:
-    token, _ = await _read_refresh_token(request)
+    token = await _read_refresh_token(request)
     if token:
         store.revoke_refresh_token(token)
-    response = Response(status_code=204)
-    clear_refresh_cookie(response)
-    return response
+    return Response(status_code=204)
 
 
 # ---------------------------------------------------------------------------
@@ -282,7 +234,7 @@ def perfil(request: Request) -> dict[str, Any]:
 
 
 @app.get("/api/boveda-critica")
-@app.get("/api/boveda")  # la guía usa ambos nombres (sección 2 y sección 4)
+@app.get("/api/boveda")  # alias
 def boveda_critica(request: Request) -> dict[str, Any]:
     claims = bearer_claims(request)
     if not claims.get("mfa_verified"):
@@ -372,25 +324,3 @@ def demo_stats() -> dict[str, int]:
 def health() -> dict[str, Any]:
     return {"status": "ok", "time": int(time.time())}
 
-
-# ---------------------------------------------------------------------------
-# App web (build de Expo) servida en el mismo origen: un solo link para la demo.
-# ---------------------------------------------------------------------------
-API_PREFIXES = ("api/", "auth/", "oauth/", "mfa/")
-
-
-@app.get("/{full_path:path}", include_in_schema=False, response_model=None)
-def spa(full_path: str) -> Response:
-    if full_path.startswith(API_PREFIXES):
-        raise ApiError(404, "not_found", "Ruta no encontrada.")
-    dist: Path = config.WEB_DIST_DIR.resolve()
-    index = dist / "index.html"
-    if not index.is_file():
-        return HTMLResponse(
-            pages.error_page("La app web no está compilada. Ejecuta: cd mobile-app && npx expo export -p web"),
-            status_code=503,
-        )
-    candidate = (dist / full_path).resolve()
-    if full_path and candidate.is_file() and candidate.is_relative_to(dist):
-        return FileResponse(candidate)
-    return FileResponse(index, headers={"Cache-Control": "no-cache"})

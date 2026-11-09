@@ -1,13 +1,13 @@
 import { makeRedirectUri } from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
 
-import { API_URL, APP_SCHEME, OAUTH_CLIENT_ID, TOKEN_DELIVERY } from '../config';
+import { API_URL, APP_SCHEME, OAUTH_CLIENT_ID } from '../config';
 import { createPkcePair, safeEqual, type PkcePair } from '../crypto/pkce';
 import { platformCrypto } from '../crypto/platform';
 
 /**
  * Flujo Authorization Code + PKCE (RFC 7636) con el NAVEGADOR DEL SISTEMA:
- *  - iOS: ASWebAuthenticationSession · Android: Custom Tabs · Web: ventana emergente.
+ *  - iOS: ASWebAuthenticationSession · Android: Custom Tabs.
  * No se usa WebView embebida: la app nunca ve ni puede inyectar JS en la página de login.
  */
 export interface PendingAuthorization extends PkcePair {
@@ -19,7 +19,7 @@ export interface TokenResponse {
   access_token: string;
   token_type: 'Bearer';
   expires_in: number;
-  refresh_token?: string; // solo en nativo (en web va en cookie HttpOnly)
+  refresh_token: string; // se guarda en Keychain / Keystore
 }
 
 export class OAuthError extends Error {
@@ -33,15 +33,11 @@ export class OAuthError extends Error {
 }
 
 export function getRedirectUri(): string {
-  // Development/production build: unisabana-auth://callback · Web: https://<origen>/callback
-  // (En Expo Go sería exp://<ip>:8081/--/callback: hay que agregarla a ALLOWED_REDIRECT_URIS.)
+  // Development/production build: unisabana-auth://callback · Expo Go: exp://<ip>:8081/--/callback
   return makeRedirectUri({ native: `${APP_SCHEME}://callback`, scheme: APP_SCHEME, path: 'callback' });
 }
 
-/**
- * Se prepara ANTES de que el usuario toque "Iniciar sesión": en web la ventana emergente debe
- * abrirse de forma síncrona dentro del gesto del usuario o el navegador la bloquea.
- */
+/** Genera el par PKCE, el state y la URL de autorización (antes de que el usuario toque "Iniciar sesión"). */
 export async function prepareAuthorization(): Promise<PendingAuthorization> {
   const pkce = await createPkcePair(platformCrypto);
   const redirectUri = getRedirectUri();
@@ -99,16 +95,14 @@ async function exchangeCode(code: string, pending: PendingAuthorization): Promis
     redirect_uri: pending.redirectUri,
     client_id: OAUTH_CLIENT_ID,
     code_verifier: pending.codeVerifier, // el backend verifica SHA256(verifier) === challenge
-    token_delivery: TOKEN_DELIVERY,
   });
   const response = await fetch(`${API_URL}/auth/oauth/token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
     body: body.toString(),
-    credentials: 'include',
   });
   const data = (await response.json().catch(() => ({}))) as Partial<TokenResponse> & { message?: string };
-  if (!response.ok || !data.access_token) {
+  if (!response.ok || !data.access_token || !data.refresh_token) {
     throw new OAuthError(data.message ?? 'No se pudo canjear el código de autorización.', 'exchange_failed');
   }
   return data as TokenResponse;

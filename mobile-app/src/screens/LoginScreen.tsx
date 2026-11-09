@@ -16,7 +16,7 @@ export function LoginScreen({ onOpenAuthenticator }: { onOpenAuthenticator: () =
 
   const [attempt, setAttempt] = useState(0);
 
-  // PKCE + state se generan antes del toque (en web la ventana emergente debe abrirse en el mismo gesto).
+  // PKCE + state se generan antes del toque para mostrarlos en pantalla; cada intento usa un par nuevo.
   useEffect(() => {
     let alive = true;
     void prepareAuthorization().then((next) => {

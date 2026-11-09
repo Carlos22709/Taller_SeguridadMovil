@@ -7,4 +7,3 @@ backend-auth/.env
 
 # Node / Expo (ver también mobile-app/.gitignore)
 node_modules/
-mobile-app/dist/

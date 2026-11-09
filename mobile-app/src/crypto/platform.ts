@@ -2,7 +2,7 @@ import * as ExpoCrypto from 'expo-crypto';
 
 import type { CryptoPrimitives } from './primitives';
 
-/** Implementación real: usa el hashing nativo del sistema (CommonCrypto / java.security / WebCrypto). */
+/** Implementación real: usa el hashing nativo del sistema (CommonCrypto en iOS / java.security en Android). */
 export const platformCrypto: CryptoPrimitives = {
   randomBytes: (length) => ExpoCrypto.getRandomBytes(length),
   sha1: async (data) =>
